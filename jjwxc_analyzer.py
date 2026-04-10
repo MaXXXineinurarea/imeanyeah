@@ -14,7 +14,9 @@ from html.parser import HTMLParser
 
 
 # ── 配置 ──────────────────────────────────────────────
-GITHUB_TOKEN = "your_token_here"   # 替换成你的 GitHub PAT
+import os
+# 从环境变量读取 token，也可直接在这里填写：GITHUB_TOKEN = "ghp_xxx..."
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "your_token_here")
 GITHUB_OWNER = "MaXXXineinurarea"
 GITHUB_REPO  = "imeanyeah"
 TODAY        = date.today().isoformat()   # e.g. 2026-04-10
@@ -42,30 +44,48 @@ GENRE_KEYWORDS = {
 }
 
 
+# 导航/页脚常见干扰词，命中则跳过
+_NAV_BLACKLIST = {
+    "加为收藏", "设为首页", "繁体版", "APP下载", "完结文库",
+    "晋江全版权站", "中短篇", "小书喵悦读", "晋江论坛", "关于我们",
+    "联系方式", "联系客服", "读者导航", "作者导航", "招纳贤才",
+    "权利声明", "广告服务", "友情链接", "常见问题", "登录", "注册",
+    "充值", "投诉", "举报", "帮助", "更多", "查看", "点击",
+    "请参考此方法重新开启javascript",
+}
+
+
 # ── 抓取标题 ─────────────────────────────────────────
 class TitleParser(HTMLParser):
-    """简单解析 <a> 标签内的文字作为候选标题"""
+    """只提取小说详情页链接（href 含 novelid= 或 /book/）中的文字作为标题"""
     def __init__(self):
         super().__init__()
         self.titles = []
-        self._in_a = False
+        self._in_novel_a = False
         self._buf = ""
 
     def handle_starttag(self, tag, attrs):
         if tag == "a":
-            self._in_a = True
-            self._buf = ""
+            href = dict(attrs).get("href", "")
+            # 晋江小说链接特征：novelid= 或 /book/ 或 onebook.php
+            if any(k in href for k in ("novelid=", "/book/", "onebook.php")):
+                self._in_novel_a = True
+                self._buf = ""
+            else:
+                self._in_novel_a = False
 
     def handle_endtag(self, tag):
-        if tag == "a" and self._in_a:
+        if tag == "a" and self._in_novel_a:
             text = self._buf.strip()
-            # 过滤：只保留2~30字且包含中文的标题
-            if 2 <= len(text) <= 30 and any("\u4e00" <= c <= "\u9fff" for c in text):
+            # 过滤：2~30字、含中文、不在导航黑名单
+            if (2 <= len(text) <= 30
+                    and any("\u4e00" <= c <= "\u9fff" for c in text)
+                    and text not in _NAV_BLACKLIST):
                 self.titles.append(text)
-            self._in_a = False
+            self._in_novel_a = False
 
     def handle_data(self, data):
-        if self._in_a:
+        if self._in_novel_a:
             self._buf += data
 
 
